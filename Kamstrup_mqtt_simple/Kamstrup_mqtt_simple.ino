@@ -5,8 +5,15 @@
 #include "secrets.h"
 
 #define DEBUG_BEGIN Serial.begin(115200);
-#define DEBUG_PRINT(x) Serial.print(x);sendmsg(String(mqtt_topic)+"/status",x);
-#define DEBUG_PRINTLN(x) Serial.println(x);sendmsg(String(mqtt_topic)+"/status",x);
+#define DEBUG_PRINT(x) \
+  Serial.print(x);     \
+  sendmsg(String(mqtt_topic) + "/status", x);
+#define DEBUG_PRINTLN(x) \
+  Serial.println(x);     \
+  sendmsg(String(mqtt_topic) + "/status", x);
+
+#define LED_ON LOW    // low is on fore me
+#define LED_OFF HIGH  // high is off fore me
 
 const size_t headersize = 11;
 const size_t footersize = 3;
@@ -26,55 +33,70 @@ unsigned long wifiReconnectInterval = 30000;
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-void setup() {
-  //DEBUG_BEGIN
-  //DEBUG_PRINTLN("")
+void setup()
+{
+  // DEBUG_BEGIN
+  // DEBUG_PRINTLN("")
   Serial.begin(115200);
-  Serial.println(" I can print something");
+  Serial.println();
+  Serial.println("Starting...");
   pinMode(BUILTIN_LED, OUTPUT);
-  
 
+  digitalWrite(BUILTIN_LED, LED_OFF);
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  while (WiFi.status() != WL_CONNECTED)
+  {
     Serial.println("Connecting to WiFi..");
+    digitalWrite(BUILTIN_LED, LED_ON); 
+    delay(500);
+    digitalWrite(BUILTIN_LED, LED_OFF); 
+    delay(500);
   }
   Serial.println("Connected to the WiFi network");
 
   client.setServer(mqttServer, mqttPort);
-  
-  while (!client.connected()) {
+
+  while (!client.connected())
+  {
     Serial.println("Connecting to MQTT...");
 
-    if (client.connect(mqttClientID, mqttUser, mqttPassword )) {
+    if (client.connect(mqttClientID, mqttUser, mqttPassword))
+    {
+      Serial.println("Connected to MQTT broker");
+    }
+    else
+    {
+      Serial.print("Failed to connect to MQTT broker: state ");
+      Serial.println(client.state());
 
-      Serial.println("connected");
-
-    } else {
-
-      Serial.print("failed with state ");
-      Serial.print(client.state());
-      delay(2000);
-
+      digitalWrite(BUILTIN_LED, LED_ON); 
+      delay(500);
+      digitalWrite(BUILTIN_LED, LED_OFF); 
+      delay(500);
     }
   }
+
+  Serial.println("Setup completed");
+  delay(500);
 
   Serial.begin(2400, SERIAL_8N1);
   Serial.swap();
   hexStr2bArr(encryption_key, conf_key, sizeof(encryption_key));
   hexStr2bArr(authentication_key, conf_authkey, sizeof(authentication_key));
-  Serial.println("Setup completed");
-  digitalWrite(BUILTIN_LED, HIGH);
+
+  digitalWrite(BUILTIN_LED, LED_ON);
 }
 
-void loop() {
-  while (Serial.available() > 0) {
-    //for(int i=0;i<sizeof(input);i++){
-    if (streamParser.pushData(Serial.read())) {
-      //  if (streamParser.pushData(input[i])) {
+void loop()
+{
+  while (Serial.available() > 0)
+  {
+    if (streamParser.pushData(Serial.read()))
+    {
       VectorView frame = streamParser.getFrame();
-      if (streamParser.getContentType() == MbusStreamParser::COMPLETE_FRAME) {
+      if (streamParser.getContentType() == MbusStreamParser::COMPLETE_FRAME)
+      {
         DEBUG_PRINTLN("Frame complete");
         if (!decrypt(frame))
         {
@@ -92,10 +114,12 @@ void loop() {
   client.loop();
 }
 
-void reconnectWifi() {
+void reconnectWifi()
+{
   currentMillis = millis();
   // if WiFi is down, try reconnecting
-  if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >= wifiReconnectInterval)) {
+  if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >= wifiReconnectInterval))
+  {
     Serial.print(millis());
     Serial.println("Reconnecting to WiFi...");
     WiFi.disconnect();
@@ -104,8 +128,8 @@ void reconnectWifi() {
   }
 }
 
-
-void sendData(MeterData md) {
+void sendData(MeterData md)
+{
   if (md.activePowerPlusValid)
     sendmsg(String(mqtt_topic) + "/power/activePowerPlus", String(md.activePowerPlus));
   if (md.activePowerMinusValid)
@@ -173,23 +197,32 @@ void sendData(MeterData md) {
     sendmsg(String(mqtt_topic) + "/energy/reactiveExportKWh", String(md.reactiveExportWh / 1000.));
 }
 
-void printHex(const unsigned char* data, const size_t length) {
-  for (int i = 0; i < length; i++) {
+void printHex(const unsigned char *data, const size_t length)
+{
+  for (int i = 0; i < length; i++)
+  {
     Serial.printf("%02X", data[i]);
   }
 }
 
-void printHex(const VectorView& frame) {
-  for (int i = 0; i < frame.size(); i++) {
+void printHex(const VectorView &frame)
+{
+  for (int i = 0; i < frame.size(); i++)
+  {
     Serial.printf("%02X", frame[i]);
   }
 }
 
-bool decrypt(const VectorView& frame) {
-
-  if (frame.size() < headersize + footersize + 12 + 18) {
+bool decrypt(const VectorView &frame)
+{
+  if (frame.size() < headersize + footersize + 12 + 18)
+  {
     Serial.println("Invalid frame size.");
   }
+
+  Serial.println("----------------- 8< -----------------");
+  printHex(frame);
+  Serial.println("----------------- >8 -----------------");
 
   memcpy(decryptedFrameBuffer, &frame.front(), frame.size());
 
@@ -214,30 +247,32 @@ bool decrypt(const VectorView& frame) {
 
   mbedtls_gcm_init(&m_ctx);
   int success = mbedtls_gcm_setkey(&m_ctx, MBEDTLS_CIPHER_ID_AES, encryption_key, sizeof(encryption_key) * 8);
-  if (0 != success) {
+  if (0 != success)
+  {
     Serial.println("Setkey failed: " + String(success));
     return false;
   }
   success = mbedtls_gcm_auth_decrypt(&m_ctx, sizeof(cipher_text), initialization_vector, sizeof(initialization_vector),
                                      additional_authenticated_data, sizeof(additional_authenticated_data), authentication_tag, sizeof(authentication_tag),
                                      cipher_text, plaintext);
-  if (0 != success) {
+  if (0 != success)
+  {
     Serial.println("authdecrypt failed: " + String(success));
     return false;
   }
   mbedtls_gcm_free(&m_ctx);
 
-  //copy replace encrypted data with decrypted for mbusparser library. Checksum not updated. Hopefully not needed
+  // copy replace encrypted data with decrypted for mbusparser library. Checksum not updated. Hopefully not needed
   memcpy(decryptedFrameBuffer + headersize + 18, plaintext, sizeof(plaintext));
   decryptedFrame = VectorView(decryptedFrameBuffer, frame.size());
 
   return true;
 }
 
-void hexStr2bArr(uint8_t* dest, const char* source, int bytes_n)
+void hexStr2bArr(uint8_t *dest, const char *source, int bytes_n)
 {
-  uint8_t* dst = dest;
-  uint8_t* end = dest + sizeof(bytes_n);
+  uint8_t *dst = dest;
+  uint8_t *end = dest + sizeof(bytes_n);
   unsigned int u;
 
   while (dest < end && sscanf(source, "%2x", &u) == 1)
@@ -247,17 +282,20 @@ void hexStr2bArr(uint8_t* dest, const char* source, int bytes_n)
   }
 }
 
-
-void sendmsg(String topic, String payload) {
-  if (client.connected() && WiFi.status() == WL_CONNECTED) {
+void sendmsg(String topic, String payload)
+{
+  if (client.connected() && WiFi.status() == WL_CONNECTED)
+  {
     digitalWrite(BUILTIN_LED, LOW);
     // If we are connected to WiFi and MQTT, send. (From Niels Ørbæk)
     client.publish(topic.c_str(), payload.c_str());
     delay(10);
     digitalWrite(BUILTIN_LED, HIGH);
-  } else {
+  }
+  else
+  {
     // Otherwise, restart the chip, hoping that the issue resolved itself.
-    delay(60*1000);
+    delay(60 * 1000);
     ESP.restart();
   }
 }
